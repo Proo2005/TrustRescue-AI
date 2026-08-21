@@ -1,6 +1,6 @@
 import pandas as pd
 from pydantic import BaseModel, Field, field_validator, ConfigDict
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 from fastapi import FastAPI, HTTPException
 import networkx as nx
@@ -45,6 +45,10 @@ class DisasterRecordSchema(BaseModel):
         if isinstance(value, str):
             return pd.to_datetime(value)
         return value
+
+class DynamicOptimizationRequest(BaseModel):
+    record: DisasterRecordSchema
+    waypoints: Optional[List[Dict[str, Any]]] = None
 
 def validate_dataset_stream(csv_file_path: str):
     df = pd.read_csv(csv_file_path)
@@ -109,7 +113,7 @@ def train_enhanced_risk_classifier(csv_file_path: str):
 
 
 # --- Step 3: Dynamic Routing & Evacuation Optimization ---
-def build_evacuation_network():
+def build_default_evacuation_network():
     G = nx.Graph()
     G.add_node("Shelter_A", pos=(22.5726, 88.3639), type="safe_zone", capacity=500)
     G.add_node("Node_1", pos=(22.5800, 88.3700), type="junction", risk_level="Low")
@@ -118,20 +122,10 @@ def build_evacuation_network():
 
     G.add_edge("Victim_Zone", "Node_2", distance=2.5, road_condition="Obstructed", weight=float('inf'))
     G.add_edge("Victim_Zone", "Node_1", distance=3.0, road_condition="Clear", weight=3.0)
+    G.add_node("Node_1", pos=(22.5800, 88.3700))
     G.add_edge("Node_1", "Shelter_A", distance=1.5, road_condition="Clear", weight=1.5)
     G.add_edge("Node_2", "Shelter_A", distance=2.0, road_condition="Clear", weight=2.0)
     return G
-
-def find_safest_evacuation_route(graph, source, target):
-    try:
-        path = nx.shortest_path(graph, source=source, target=target, weight='weight')
-        total_distance = nx.path_weight(graph, path, weight='distance')
-        print(f"Safe Evacuation Route Found: {' -> '.join(path)}")
-        print(f"Total Distance: {total_distance} km")
-        return path
-    except nx.NetworkXNoPath:
-        print("Error: No safe route available due to total road obstruction!")
-        return None
 
 
 # --- Startup Event to Train Model Once ---
@@ -142,13 +136,15 @@ def startup_event():
     ml_model, label_encoder, model_feature_columns = train_enhanced_risk_classifier(csv_path)
 
 
-# --- Step 4: FastAPI Integration Endpoint with Dynamic Prediction ---
+# --- Step 4: FastAPI Integration Endpoint with Dynamic Custom Waypoints ---
 @app.post("/ingest-and-optimize/")
-def process_disaster_telemetry(record: DisasterRecordSchema):
+def process_disaster_telemetry(payload: DynamicOptimizationRequest):
     try:
+        record = payload.record
+        waypoints = payload.waypoints
+        
         validated_data = record.model_dump(by_alias=True)
         
-        # Ensure alias mapping matches training feature columns
         if "air_quality" in validated_data and "air_quality_index" not in validated_data:
             validated_data["air_quality_index"] = validated_data["air_quality"]
         
@@ -168,11 +164,9 @@ def process_disaster_telemetry(record: DisasterRecordSchema):
         X_input = pd.concat([X_num, X_cat], axis=1)
         X_input = X_input.reindex(columns=model_feature_columns, fill_value=0)
         
-        # Predict severity via ML model
         pred_encoded = ml_model.predict(X_input)[0]
         ml_severity = label_encoder.inverse_transform([pred_encoded])[0]
 
-        # Dynamic Heuristic Override to ensure realistic output variations based on sliders
         water_lvl = validated_data.get("water_level", 0)
         road_cond = validated_data.get("road_condition", "Clear")
         damage = validated_data.get("building_damage_level", "Undamaged")
@@ -185,13 +179,32 @@ def process_disaster_telemetry(record: DisasterRecordSchema):
         else:
             predicted_severity = ml_severity
 
-        # Routing Optimization Graph
-        graph = build_evacuation_network()
-        if validated_data.get("road_condition") in ["Obstructed", "Blocked"]:
-            if graph.has_edge("Victim_Zone", "Node_1"):
-                graph["Victim_Zone"]["Node_1"]["weight"] = float('inf')
+        # Build Graph dynamically from user waypoints sequentially
+        graph = nx.Graph()
+        if waypoints and len(waypoints) >= 2:
+            for wp in waypoints:
+                graph.add_node(wp["name"], pos=(wp["lat"], wp["lon"]))
+            
+            # Connect nodes in the exact sequential order they were added/clicked
+            for i in range(len(waypoints) - 1):
+                p1 = (waypoints[i]["lat"], waypoints[i]["lon"])
+                p2 = (waypoints[i+1]["lat"], waypoints[i+1]["lon"])
+                
+                # Calculate exact geodesic/Euclidean distance in kilometers
+                dist = ((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)**0.5 * 111.0
+                
+                weight = float('inf') if road_cond in ["Obstructed", "Blocked"] and i == 0 else dist
+                graph.add_edge(waypoints[i]["name"], waypoints[i+1]["name"], distance=dist, weight=weight)
+            
+            # Route strictly from the first waypoint to the last waypoint in your list
+            source = waypoints[0]["name"]
+            target = waypoints[-1]["name"]
+        else:
+            graph = build_default_evacuation_network()
+            source = "Victim_Zone"
+            target = "Shelter_A"
 
-        path = nx.shortest_path(graph, source="Victim_Zone", target="Shelter_A", weight='weight')
+        path = nx.shortest_path(graph, source=source, target=target, weight='weight')
         total_distance = nx.path_weight(graph, path, weight='distance')
 
         return {
@@ -199,22 +212,7 @@ def process_disaster_telemetry(record: DisasterRecordSchema):
             "ai_predicted_severity_level": predicted_severity,
             "validated_payload": validated_data,
             "evacuation_route": path,
-            "total_distance_km": total_distance
+            "total_distance_km": round(total_distance, 2)
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-
-# --- Script Initialization Execution ---
-if __name__ == "__main__":
-    csv_path = "dataset/drone_disaster_area_identification_dataset.csv"
-    
-    print("--- Running Step 1: Validation ---")
-    valid_data, ingestion_errors = validate_dataset_stream(csv_path)
-    
-    print("\n--- Running Step 2: Training ML Model ---")
-    model, encoder, _ = train_enhanced_risk_classifier(csv_path)
-    
-    print("\n--- Running Step 3: Evacuation Routing ---")
-    disaster_graph = build_evacuation_network()
-    route = find_safest_evacuation_route(disaster_graph, "Victim_Zone", "Shelter_A")

@@ -1,0 +1,26 @@
+What the Model is Doing
+The system acts as an end-to-end intelligent disaster response and resource optimization engine. Specifically, it performs three core tasks simultaneously upon receiving live telemetry:
+
+Data Ingestion and Validation: It ingests streaming sensor and drone data, validating every field against strict data types, ranges, and structures using Pydantic.
+
+AI Risk Scoring Classification: It passes the validated numerical telemetry (such as temperature, water level, wind speed) and categorical infrastructure metrics (such as building damage and road conditions) through a trained machine learning classifier to predict the crisis severity level (Low, Medium, or High).
+
+Dynamic Graph Routing & Resource Allocation: It constructs a spatial network map of the disaster zone, calculates the safest obstacle-free evacuation path using graph theory (bypassing blocked roads), and automatically dispatches appropriate emergency units (e.g., rescue boats, ambulances, HazMat teams) based on the severity and affected area type.
+
+What Architecture It Is Using
+The system utilizes a hybrid modular architecture combining:
+
+Pydantic & Pandas Core: For deterministic data validation, schema enforcement, and DataFrame manipulation.
+
+Random Forest Classifier (Ensemble Machine Learning): Built using scikit-learn, utilizing multiple decision trees trained on bootstrap samples with weighted class balancing.
+
+NetworkX (Graph Theory Engine): For spatial node-edge modeling and Dijkstra-based shortest-path calculations.
+
+FastAPI & Streamlit: For asynchronous microservice API routing and a reactive Python-based user interface.
+
+Why It Is Using That Architecture
+Why Random Forest for Risk Scoring? Disasters involve complex non-linear relationships between environmental sensors (e.g., high water levels combined with obstructed roads). Random Forest handles mixed data types (numerical sensors and categorical damage levels) exceptionally well, is robust against overfitting on tabular datasets, and provides built-in handling for class imbalance via class_weight='balanced'.
+
+Why NetworkX for Routing? Real-world disaster zones consist of interconnected junctions, hazard zones, and shelters. Graph algorithms like Dijkstra's algorithm provide mathematically guaranteed optimal paths and allow instant dynamic weight updates (e.g., setting a road's weight to infinity if it becomes blocked), which traditional map routing APIs cannot adapt to on the fly.
+
+Why FastAPI and Streamlit? FastAPI provides high-performance, asynchronous validation and endpoint serving essential for emergency response systems, while Streamlit enables rapid, pure-Python dashboard deployment without complex HTML/JS overhead.

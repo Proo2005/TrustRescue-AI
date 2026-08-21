@@ -166,5 +166,7 @@ streamlit run app.py
 * Institute of Engineering and Management , Kolkata
 * Contact : prochak1922@gmail.com 
 
+## Documentation
+[Document](./documentation)
 ## 📝 License
 This project is open-source and distributed under the MIT License.
