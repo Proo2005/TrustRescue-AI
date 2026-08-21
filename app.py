@@ -5,13 +5,76 @@ import folium
 from streamlit_folium import st_folium
 from geopy.distance import geodesic
 
-st.set_page_config(page_title="TrustRescue AI Command Center", layout="wide")
+# Page Configuration
+st.set_page_config(
+    page_title="TrustRescue AI Command Center",
+    page_icon="🚨",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-st.title("🚨 TrustRescue AI: Interactive Command & Routing Dashboard")
-st.markdown("Select points manually on the interactive map, track live locations, and compute dynamic routing distances.")
+# --- Modern Glassmorphism Custom CSS Styling ---
+st.markdown("""
+<style>
+    /* Main Background & Theme */
+    .stApp {
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        color: #f8fafc;
+        font-family: 'Inter', sans-serif;
+    }
+    
+    /* Sidebar Styling */
+    [data-testid="stSidebar"] {
+        background-color: rgba(15, 23, 42, 0.85);
+        backdrop-filter: blur(12px);
+        border-right: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    /* Glassmorphism Cards */
+    .glass-card {
+        background: rgba(30, 41, 59, 0.7);
+        backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 24px;
+        border-radius: 16px;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        margin-bottom: 20px;
+    }
+    
+    /* Header Typography */
+    h1, h2, h3 {
+        color: #f1f5f9;
+        font-weight: 700;
+    }
+    
+    /* Custom Buttons */
+    .stButton>button {
+        background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+        color: white;
+        border-radius: 10px;
+        padding: 0.6rem 1.2rem;
+        font-weight: 600;
+        border: none;
+        box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4);
+        transition: all 0.3s ease;
+    }
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(59, 130, 246, 0.6);
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# Sidebar for Telemetry Input
-st.sidebar.header("📡 Live Drone / Sensor Telemetry")
+# Main Title Header
+st.markdown("""
+    <div style='padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 25px;'>
+        <h1 style='margin:0; font-size: 2.2rem;'>🚨 TrustRescue AI Command Center</h1>
+        <p style='color: #94a3b8; margin: 5px 0 0 0; font-size: 1.1rem;'>Autonomous Disaster Reconnaissance & Emergency Response Optimization Engine</p>
+    </div>
+""", unsafe_allow_html=True)
+
+# --- Sidebar for Telemetry Input ---
+st.sidebar.header("📡 Live Sensor & Drone Telemetry")
 
 def user_input_features():
     timestamp = str(pd.Timestamp.now())
@@ -64,12 +127,16 @@ if "custom_waypoints" not in st.session_state:
         {"name": "Victim Zone (Hazard)", "lat": 22.6000, "lon": 88.3900}
     ]
 
-col1, col2 = st.columns([1, 1])
+# Layout Columns
+col1, col2 = st.columns([1, 1], gap="large")
 
 with col1:
-    st.subheader("📋 Submitted Telemetry Payload")
+    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+    st.subheader("📋 Active Telemetry Payload")
     st.json(input_data)
+    st.markdown('</div>', unsafe_allow_html=True)
 
+    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     st.subheader("📍 Manual Waypoint Management")
     with st.form("add_waypoint_form"):
         wp_name = st.text_input("Waypoint Name", value=f"Node_{len(st.session_state.custom_waypoints)+1}")
@@ -86,15 +153,15 @@ with col1:
             {"name": "Victim Zone (Hazard)", "lat": 22.6000, "lon": 88.3900}
         ]
         st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
 with col2:
-    st.subheader("🗺️ Interactive Map (Click to Inspect/Add)")
-    st.markdown("*(Click anywhere on the map to capture coordinates or review node distribution)*")
+    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+    st.subheader("🗺️ Interactive Crisis Map")
+    st.markdown("<p style='color: #94a3b8; font-size: 0.9rem;'>Click anywhere on the map to drop coordinates or inspect checkpoints.</p>", unsafe_allow_html=True)
 
-    # Create Folium Map centered around Kolkata region
-    m = folium.Map(location=[22.5850, 88.3750], zoom_start=13)
+    m = folium.Map(location=[22.5850, 88.3750], zoom_start=13, tiles="CartoDB dark_matter")
     
-    # Render all current waypoints as markers
     for wp in st.session_state.custom_waypoints:
         folium.Marker(
             [wp["lat"], wp["lon"]], 
@@ -103,41 +170,38 @@ with col2:
             icon=folium.Icon(color="red" if "Hazard" in wp["name"] or "Zone" in wp["name"] else "green", icon="info-sign")
         ).add_to(m)
 
-    # Draw polyline connecting sequential waypoints to calculate manual distance
     if len(st.session_state.custom_waypoints) >= 2:
         route_coords = [[wp["lat"], wp["lon"]] for wp in st.session_state.custom_waypoints]
-        folium.PolyLine(route_coords, color="blue", weight=3, opacity=0.8).add_to(m)
+        folium.PolyLine(route_coords, color="#3b82f6", weight=4, opacity=0.8).add_to(m)
 
-    # Capture map clicks using streamlit-folium
-    map_data = st_folium(m, height=400, width=700)
+    map_data = st_folium(m, height=420, width=700)
 
-    # Check if user clicked on map to add a point
     if map_data and map_data.get("last_clicked"):
         clicked_lat = map_data["last_clicked"]["lat"]
         clicked_lng = map_data["last_clicked"]["lng"]
-        # Avoid duplicate rerun loops by checking storage
         if "last_click_processed" not in st.session_state or st.session_state.last_click_processed != (clicked_lat, clicked_lng):
             st.session_state.last_click_processed = (clicked_lat, clicked_lng)
             st.session_state.custom_waypoints.append({
-                "name": f"Clicked_Node_{len(st.session_state.custom_waypoints)+1}",
+                "name": f"Node_{len(st.session_state.custom_waypoints)+1}",
                 "lat": clicked_lat,
                 "lon": clicked_lng
             })
             st.rerun()
 
-    # Calculate Total Manual Route Distance using Geodesy
     total_manual_distance = 0.0
     for i in range(len(st.session_state.custom_waypoints) - 1):
         pt1 = (st.session_state.custom_waypoints[i]["lat"], st.session_state.custom_waypoints[i]["lon"])
         pt2 = (st.session_state.custom_waypoints[i+1]["lat"], st.session_state.custom_waypoints[i+1]["lon"])
         total_manual_distance += geodesic(pt1, pt2).kilometers
 
-    st.info(f"📏 **Calculated Manual Route Distance:** {total_manual_distance:.2f} km across {len(st.session_state.custom_waypoints)} nodes.")
+    st.markdown(f"<div style='margin-top: 15px; background: rgba(59, 130, 246, 0.1); padding: 10px 15px; border-radius: 8px; border-left: 4px solid #3b82f6;'>📏 <b>Manual Route Distance:</b> {total_manual_distance:.2f} km across {len(st.session_state.custom_waypoints)} nodes</div>", unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # AI Intelligence Dispatch Section
-# AI Intelligence Dispatch Section
 st.markdown("---")
+st.markdown('<div class="glass-card">', unsafe_allow_html=True)
 st.subheader("⚡ AI Response & Tactical Resource Dispatch")
+
 if st.button("Run AI Intelligence & Dispatch Units", type="primary"):
     try:
         payload = {
@@ -150,28 +214,33 @@ if st.button("Run AI Intelligence & Dispatch Units", type="primary"):
             result = response.json()
             severity = result.get("ai_predicted_severity_level", "Medium")
             
+            st.markdown("<br>", unsafe_allow_html=True)
             if severity == "High":
                 st.error(f"⚠️ AI Predicted Severity Level: **{severity}**")
             elif severity == "Medium":
                 st.warning(f"⚠️ AI Predicted Severity Level: **{severity}**")
             else:
                 st.info(f"✅ AI Predicted Severity Level: **{severity}**")
-            # Display Recommended Rescue Methods
-            st.markdown("### 🛡️ Recommended Methods of Rescue")
-            for method in result.get("rescue_methods", []):
-                st.markdown(f"- ✅ **{method}**")
 
-            # Display Dispatched Units
-            st.markdown("### 🚑 Automated Emergency Unit Dispatch")
-            for unit in result.get("allocated_units", []):
-                st.markdown(f"- {unit}")
+            col_res1, col_res2 = st.columns(2)
+            
+            with col_res1:
+                st.markdown("#### 🛡️ Recommended Methods of Rescue")
+                for method in result.get("rescue_methods", []):
+                    st.markdown(f"- ✅ {method}")
 
-            # Routing Logistics
-            st.markdown("### 🗺️ Evacuation Logistics")
-            st.write(f"**Optimized Route:** `{' -> '.join(result.get('evacuation_route', []))}`")
-            st.write(f"**Total Path Distance:** {result.get('total_distance_km')} km")
+                st.markdown("#### 🚑 Automated Emergency Unit Dispatch")
+                for unit in result.get("allocated_units", []):
+                    st.markdown(f"- {unit}")
+
+            with col_res2:
+                st.markdown("#### 🗺️ Evacuation Logistics & Routing")
+                st.write(f"**Optimized Route:** `{' -> '.join(result.get('evacuation_route', []))}`")
+                st.write(f"**Total Path Distance:** {result.get('total_distance_km')} km")
             
         else:
             st.error(f"Backend Error: {response.text}")
     except requests.exceptions.ConnectionError:
         st.error("Could not connect to FastAPI backend. Ensure your backend server is running (`uvicorn model:app --reload`).")
+
+st.markdown('</div>', unsafe_allow_html=True)
