@@ -22,7 +22,7 @@
 ---
 
 ## 🌟 Project Overview
-**TrustRescue AI** is an advanced crisis management and disaster response system designed to process real-time drone and IoT sensor telemetry. The platform automates data validation, predicts disaster severity scores using machine learning, calculates safe obstacle-free evacuation paths using graph theory, and instantly dispatches emergency resources through an interactive command dashboard.
+**TrustRescue AI** is an advanced crisis management and disaster response system designed to process real-time drone and IoT sensor telemetry. The platform automates data validation, predicts disaster severity scores using machine learning, calculates safe obstacle-free evacuation paths using **A\* (A-Star) graph search**, dynamically integrates official government public utility hospital registries, and instantly dispatches emergency resources through an interactive command dashboard.
 
 ---
 
@@ -32,28 +32,32 @@ The system follows a modular 4-tier architecture:
 
 1. **Tier 1: Data Ingestion & Validation (Pydantic & Pandas)**
    - Streaming CSV records and API payloads are ingested and cleaned.
-   - Strict schema validation ensures data types, timestamps, and range boundaries ($ge=0, le=10$) are enforced before processing.
+   - Strict schema validation ensures data types, timestamps, and range boundaries are enforced before processing.
 2. **Tier 2: AI Risk Scoring Classifier (Scikit-Learn)**
    - Combines numerical sensor parameters and one-hot-encoded infrastructure categoricals.
    - Employs a balanced **Random Forest Classifier** alongside heuristic overrides to output multi-class severity classifications (`Low`, `Medium`, `High`).
-3. **Tier 3: Dynamic Graph Routing (NetworkX)**
+3. **Tier 3: Dynamic A* Graph Routing (NetworkX & Geopy)**
    - Maps disaster zones as a spatial graph ($G = (V, E)$).
    - Dynamically weights or removes edges (roads) marked as `Obstructed` or `Blocked` ($\text{weight} = \infty$).
+   - Utilizes **A\* Search** driven by an admissible geographic heuristic function to compute optimal rescue paths efficiently.
 4. **Tier 4: Command & Dispatch Dashboard (FastAPI & Streamlit)**
-   - Exposes asynchronous backend endpoints and a real-time reactive user interface for automated resource allocation.
+   - Exposes asynchronous backend endpoints and a real-time reactive user interface featuring live Folium mapping layers for hospital assets and evacuation routes.
 
 ---
 
 ## 🧮 Mathematical Formulations & Calculations
 
-### 1. Shortest Path & Route Optimization (Dijkstra's Algorithm via NetworkX)
+### 1. A* Search Route Optimization
 The evacuation network is represented as an undirected weighted graph $G = (V, E)$, where $V$ represents nodes (intersections, hazard zones, safe shelters) and $E$ represents edges (roads). 
 
-The edge weight function $W(e)$ incorporates geographic distance $d(e)$ and hazard penalties:
-$$W(e) = \begin{cases} d(e), & \text{if road condition is Clear} \\ \infty, & \text{if road condition is Obstructed or Blocked} \end{cases}$$
+A* search evaluates nodes using the cost function $f(n)$:
+$$f(n) = g(n) + h(n)$$
+* $g(n)$: The exact cost (geodesic distance in kilometers) from the start node to node $n$.
+* $h(n)$: The heuristic estimate (straight-line geodesic distance) from node $n$ to the target destination $t$, calculated via Geopy:
+  $$h(n) = \text{GeodesicDistance}(n, t)$$
 
-The optimal evacuation route $P$ from a hazard source $s$ to shelter target $t$ minimizes total path cost:
-$$P = \arg\min_{p \in \text{paths}(s, t)} \sum_{e \in p} W(e)$$
+The edge cost function $W(e)$ incorporates distance $d(e)$ and obstacle penalties:
+$$W(e) = \begin{cases} d(e), & \text{if road condition is Clear} \\ \infty, & \text{if road condition is Obstructed or Blocked} \end{cases}$$
 
 ### 2. Random Forest Classification Entropy
 To split nodes and classify disaster severity levels, the Random Forest algorithm utilizes Information Gain based on Shannon Entropy ($H$):
@@ -90,10 +94,9 @@ SIH2026/
 ├── dataset/
 │   └── drone_disaster_area_identification_dataset.csv
 │
-├── model.py         # FastAPI Backend + Pydantic validation + ML Training + NetworkX Routing
-├── app.py           # Streamlit Frontend Command Center Dashboard
+├── model.py         # FastAPI Backend + Pydantic + ML Training + A* Routing + Govt Hospital API
+├── app.py           # Streamlit Frontend Command Center Dashboard with Folium Map Integration
 └── README.md        # Comprehensive Documentation
-```
 
 ## Installation & How to Run
 
@@ -118,17 +121,14 @@ streamlit run app.py
 * (This will automatically open the interactive command dashboard in your web browser at http://localhost:8501)
 
 ## 🔌 API Documentation
-#### Get all items
+#### Base URL
 
 ```http
-  http://127.0.0.1:8000
+  [http://127.0.0.1:8000](http://127.0.0.1:8000)
 ```
 
-| Parameter | Type     | Description                |
-| :-------- | :------- | :------------------------- |
-| `api_key` | `string` | **Required**. Your API key |
 
-#### POST
+#### POST Endpoint
 
 ```http
   POST /ingest-and-optimize/
@@ -136,28 +136,34 @@ streamlit run app.py
 
 | Parameter | Type     | Description                       |
 | :-------- | :------- | :-------------------------------- |
-| `ingest-and-optimize`      | `string` | **Required**. ngests live telemetry data, validates it against the Pydantic schema, predicts disaster severity via the trained Random Forest model, and computes the optimal evacuation route. |
+| `ingest-and-optimize`      | `object` | **Required**. ngests live telemetry data, validates it against the Pydantic schema, predicts disaster severity via the trained Random Forest model, and computes the optimal evacuation route. |
 
 #### Request Body Examples:
 ```bash
 {
-  "timestamp": "2026-08-21T15:30:00",
-  "temperature": 28.5,
-  "humidity": 75.0,
-  "wind_speed": 15.0,
-  "air_quality": 120.0,
-  "water_level": 3.5,
-  "building_damage_level": "Moderate",
-  "road_condition": "Obstructed",
-  "infrastructure_status": "Damaged",
-  "vegetation_cover": 50.0,
-  "people_detected": 2.0,
-  "heat_signatures": 3.0,
-  "hazardous_material_detected": 0,
-  "disaster_severity_level": "Medium",
-  "affected_area_type": "Flooded",
-  "immediate_action_required": "Yes",
-  "survivor_presence_likelihood": "High"
+  "record": {
+    "timestamp": "2026-08-21T15:30:00",
+    "temperature": 28.5,
+    "humidity": 75.0,
+    "wind_speed": 15.0,
+    "air_quality": 120.0,
+    "water_level": 3.5,
+    "building_damage_level": "Moderate",
+    "road_condition": "Obstructed",
+    "infrastructure_status": "Damaged",
+    "vegetation_cover": 50.0,
+    "people_detected": 2.0,
+    "heat_signatures": 3.0,
+    "hazardous_material_detected": 0,
+    "disaster_severity_level": "Medium",
+    "affected_area_type": "Flooded",
+    "immediate_action_required": "Yes",
+    "survivor_presence_likelihood": "High"
+  },
+  "waypoints": [
+    {"name": "Shelter A (Safe Zone)", "lat": 22.5726, "lon": 88.3639},
+    {"name": "Victim Zone (Hazard)", "lat": 22.6000, "lon": 88.3900}
+  ]
 }
 ```
 

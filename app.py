@@ -121,7 +121,7 @@ def user_input_features():
 
 input_data = user_input_features()
 
-# --- New Feature: Live Environmental Threat Index Meter in Sidebar ---
+# Threat Index Meter in Sidebar
 st.sidebar.markdown("---")
 st.sidebar.subheader("⚠️ Environmental Threat Index")
 threat_score = min(100, int((input_data["water_level"] / 15.0 * 40) + 
@@ -135,7 +135,7 @@ elif threat_score > 30:
 else:
     st.sidebar.success(f"Threat Index: {threat_score}/100 (LOW)")
 
-# Initialize Session State for Custom Waypoints / Clicked Points
+# Initialize Session State for Custom Waypoints
 if "custom_waypoints" not in st.session_state:
     st.session_state.custom_waypoints = [
         {"name": "Shelter A (Safe Zone)", "lat": 22.5726, "lon": 88.3639},
@@ -143,27 +143,53 @@ if "custom_waypoints" not in st.session_state:
     ]
 
 # Layout Columns
-# Layout Columns
 col1, col2 = st.columns([1, 1], gap="large")
 
 with col1:
-   
+    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     st.markdown('<h3 style="margin-top:0;">📋 Active Telemetry Payload</h3>', unsafe_allow_html=True)
     st.json(input_data)
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    st.markdown('<h3 style="margin-top:0;">📍 Manual Waypoint Management</h3>', unsafe_allow_html=True)
+    st.markdown('<h3 style="margin-top:0;">📍 Custom Node & Zone Configuration</h3>', unsafe_allow_html=True)
+    
+    with st.form("zone_config_form"):
+        st.markdown("#### 🎯 Configure Hazard & Safe Zones")
+        
+        default_hazard = next((wp for wp in st.session_state.custom_waypoints if "Victim" in wp["name"] or "Hazard" in wp["name"]), {"name": "Victim Zone (Hazard)", "lat": 22.6000, "lon": 88.3900})
+        default_shelter = next((wp for wp in st.session_state.custom_waypoints if "Shelter" in wp["name"] or "Safe" in wp["name"]), {"name": "Shelter A (Safe Zone)", "lat": 22.5726, "lon": 88.3639})
+
+        hazard_name = st.text_input("Hazard/Victim Zone Name", value=default_hazard["name"])
+        hz_lat = st.number_input("Hazard Latitude", value=float(default_hazard["lat"]), format="%.4f")
+        hz_lon = st.number_input("Hazard Longitude", value=float(default_hazard["lon"]), format="%.4f")
+        
+        st.markdown("---")
+        shelter_name = st.text_input("Safe Shelter Name", value=default_shelter["name"])
+        sh_lat = st.number_input("Shelter Latitude", value=float(default_shelter["lat"]), format="%.4f")
+        sh_lon = st.number_input("Shelter Longitude", value=float(default_shelter["lon"]), format="%.4f")
+        
+        update_zones_btn = st.form_submit_button("Update Core Zones")
+        if update_zones_btn:
+            st.session_state.custom_waypoints = [
+                {"name": shelter_name, "lat": sh_lat, "lon": sh_lon},
+                {"name": hazard_name, "lat": hz_lat, "lon": hz_lon}
+            ]
+            st.success("Core zones updated successfully!")
+            st.rerun()
+
+    st.markdown("---")
     with st.form("add_waypoint_form"):
+        st.markdown("#### ➕ Add Intermediate Checkpoint")
         wp_name = st.text_input("Waypoint Name", value=f"Node_{len(st.session_state.custom_waypoints)+1}")
         wp_lat = st.number_input("Latitude", value=22.5850, format="%.4f")
         wp_lon = st.number_input("Longitude", value=88.3750, format="%.4f")
-        add_btn = st.form_submit_button("Add Custom Waypoint")
+        add_btn = st.form_submit_button("Add Checkpoint")
         if add_btn:
             st.session_state.custom_waypoints.append({"name": wp_name, "lat": wp_lat, "lon": wp_lon})
-            st.success(f"Added waypoint: {wp_name}")
+            st.success(f"Added checkpoint: {wp_name}")
 
-    if st.button("Reset Waypoints"):
+    if st.button("Reset All Waypoints"):
         st.session_state.custom_waypoints = [
             {"name": "Shelter A (Safe Zone)", "lat": 22.5726, "lon": 88.3639},
             {"name": "Victim Zone (Hazard)", "lat": 22.6000, "lon": 88.3900}
@@ -172,22 +198,37 @@ with col1:
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col2:
-
+    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     st.markdown('<h3 style="margin-top:0;">🗺️ Interactive Crisis Map</h3>', unsafe_allow_html=True)
-    st.markdown("<p style='color: #94a3b8; font-size: 0.9rem;'>Click anywhere on the map to drop coordinates or inspect checkpoints.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #94a3b8; font-size: 0.9rem;'>Click anywhere on the map to drop custom coordinates or inspect checkpoints.</p>", unsafe_allow_html=True)
+    
     m = folium.Map(location=[22.5850, 88.3750], zoom_start=13, tiles="CartoDB dark_matter")
     
+    # Plot Waypoints & Hazard/Shelter Nodes
     for wp in st.session_state.custom_waypoints:
+        is_hazard = "Hazard" in wp["name"] or "Victim" in wp["name"]
         folium.Marker(
             [wp["lat"], wp["lon"]], 
             popup=wp["name"], 
             tooltip=wp["name"],
-            icon=folium.Icon(color="red" if "Hazard" in wp["name"] or "Zone" in wp["name"] else "green", icon="info-sign")
+            icon=folium.Icon(color="red" if is_hazard else "green", icon="info-sign")
         ).add_to(m)
 
+    # Plot Route Lines
     if len(st.session_state.custom_waypoints) >= 2:
         route_coords = [[wp["lat"], wp["lon"]] for wp in st.session_state.custom_waypoints]
         folium.PolyLine(route_coords, color="#3b82f6", weight=4, opacity=0.8).add_to(m)
+
+    # Plot Nearby Hospitals on Map from Session State
+    if "last_mission_report" in st.session_state and "nearby_hospitals_within_3km" in st.session_state.last_mission_report:
+        for h in st.session_state.last_mission_report["nearby_hospitals_within_3km"]:
+            if "lat" in h and "lon" in h:
+                folium.Marker(
+                    [h["lat"], h["lon"]],
+                    popup=f"<b>{h['hospital_name']}</b><br>Distance: {h['distance_km']} km",
+                    tooltip=f"Hospital: {h['hospital_name']}",
+                    icon=folium.Icon(color="cadetblue", icon="plus", prefix="fa")
+                ).add_to(m)
 
     map_data = st_folium(m, height=420, width=700)
 
@@ -197,7 +238,7 @@ with col2:
         if "last_click_processed" not in st.session_state or st.session_state.last_click_processed != (clicked_lat, clicked_lng):
             st.session_state.last_click_processed = (clicked_lat, clicked_lng)
             st.session_state.custom_waypoints.append({
-                "name": f"Node_{len(st.session_state.custom_waypoints)+1}",
+                "name": f"Clicked_Node_{len(st.session_state.custom_waypoints)+1}",
                 "lat": clicked_lat,
                 "lon": clicked_lng
             })
@@ -215,7 +256,7 @@ with col2:
 # AI Intelligence Dispatch Section
 st.markdown("---")
 st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-st.subheader("⚡ AI Response & Tactical Resource Dispatch")
+st.markdown('<h3 style="margin-top:0;">⚡ AI Response & Tactical Resource Dispatch</h3>', unsafe_allow_html=True)
 
 if st.button("Run AI Intelligence & Dispatch Units", type="primary"):
     try:
@@ -228,14 +269,15 @@ if st.button("Run AI Intelligence & Dispatch Units", type="primary"):
         if response.status_code == 200:
             result = response.json()
             severity = result.get("ai_predicted_severity_level", "Medium")
+            hospitals = result.get("nearby_hospitals_within_3km", [])
             
-            # Store result in session state for export capability
             st.session_state.last_mission_report = {
                 "telemetry": input_data,
                 "threat_score": threat_score,
                 "ai_severity": severity,
                 "rescue_methods": result.get("rescue_methods", []),
                 "allocated_units": result.get("allocated_units", []),
+                "nearby_hospitals_within_3km": hospitals,
                 "evacuation_route": result.get("evacuation_route", []),
                 "total_distance_km": result.get("total_distance_km", 0.0)
             }
@@ -259,6 +301,13 @@ if st.button("Run AI Intelligence & Dispatch Units", type="primary"):
                 for unit in result.get("allocated_units", []):
                     st.markdown(f"- {unit}")
 
+                st.markdown("#### 🏥 Nearby Hospitals & Medical Nodes")
+                if hospitals:
+                    for h in hospitals:
+                        st.markdown(f"- **{h.get('hospital_name')}** ({h.get('distance_km')} km away) | Phone: {h.get('phone')}")
+                else:
+                    st.markdown("- No hospitals detected within the immediate radius.")
+
             with col_res2:
                 st.markdown("#### 🗺️ Evacuation Logistics & Routing")
                 st.write(f"**Optimized Route:** `{' -> '.join(result.get('evacuation_route', []))}`")
@@ -269,7 +318,6 @@ if st.button("Run AI Intelligence & Dispatch Units", type="primary"):
     except requests.exceptions.ConnectionError:
         st.error("Could not connect to FastAPI backend. Ensure your backend server is running (`uvicorn model:app --reload`).")
 
-# --- New Feature: Export Mission Report Button ---
 if "last_mission_report" in st.session_state:
     st.markdown("---")
     report_json = json.dumps(st.session_state.last_mission_report, indent=4)

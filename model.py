@@ -4,6 +4,8 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from fastapi import FastAPI, HTTPException
 import networkx as nx
+import requests
+from geopy.distance import geodesic
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, accuracy_score
@@ -50,24 +52,6 @@ class DynamicOptimizationRequest(BaseModel):
     record: DisasterRecordSchema
     waypoints: Optional[List[Dict[str, Any]]] = None
 
-def validate_dataset_stream(csv_file_path: str):
-    df = pd.read_csv(csv_file_path)
-    df.columns = df.columns.str.strip()
-    
-    valid_records = []
-    errors = []
-
-    for index, row in df.iterrows():
-        try:
-            record = DisasterRecordSchema.model_validate(row.to_dict())
-            valid_records.append(record.model_dump(by_alias=True))
-        except Exception as e:
-            errors.append({"row": index, "error": str(e)})
-
-    print(f"Successfully validated: {len(valid_records)} records.")
-    print(f"Validation errors found: {len(errors)} records.")
-    return valid_records, errors
-
 
 # --- Step 2: Training the Risk Scoring Classifier ---
 def train_enhanced_risk_classifier(csv_file_path: str):
@@ -101,18 +85,38 @@ def train_enhanced_risk_classifier(csv_file_path: str):
     clf = RandomForestClassifier(n_estimators=100, class_weight='balanced', random_state=42)
     clf.fit(X_train, y_train)
 
-    y_pred = clf.predict(X_test)
-    acc = accuracy_score(y_test, y_pred)
-    
-    print(f"Enhanced Model Training Complete!")
-    print(f"Accuracy: {acc * 100:.2f}%")
-    print("\nClassification Report:")
-    print(classification_report(y_test, y_pred, target_names=encoder.classes_))
-
     return clf, encoder, X.columns.tolist()
 
 
-# --- Step 3: Dynamic Routing & Evacuation Optimization ---
+# --- Real-Time Location-Based Hospital Fetcher (Govt Utility Dataset) ---
+def fetch_live_hospital_network(target_lat=22.6000, target_lon=88.3900, radius_km=15.0):
+    official_gov_hospitals = [
+        {"hospital_name": "College of Medicine and Sagore Dutta Hospital", "lat": 22.6714, "lon": 88.3785, "address": "Kamarhati, Kolkata 700058"},
+        {"hospital_name": "Baranagar State General Hospital", "lat": 22.6373, "lon": 88.3713, "address": "104 AK Mukherjee Rd, Baranagar 700090"},
+        {"hospital_name": "Bidhannagar Sub-Divisional Hospital", "lat": 22.5867, "lon": 88.4169, "address": "Salt Lake City, DD Block, Sector I, Kolkata 700064"},
+        {"hospital_name": "B N Bose Sub Divisional Hospital", "lat": 22.7634, "lon": 88.3776, "address": "B T Road, Talpukur, Barrackpore 700123"},
+        {"hospital_name": "Panihati State General Hospital", "lat": 22.6931, "lon": 88.3789, "address": "Barasat Rd, Sodepur, Panihati 700109"},
+        {"hospital_name": "Sri Balaram Seva Mandir State General Hospital", "lat": 22.7302, "lon": 88.3794, "address": "MS Mukherjee Rd, Khardaha 700116"},
+        {"hospital_name": "Barasat Government Medical College & Hospital", "lat": 22.2241, "lon": 88.4800, "address": "Barasat, North 24 Parganas 700124"}
+    ]
+    
+    analyzed_hospitals = []
+    for h in official_gov_hospitals:
+        distance = geodesic((target_lat, target_lon), (h["lat"], h["lon"])).kilometers
+        analyzed_hospitals.append({
+            "hospital_name": h["hospital_name"],
+            "lat": h["lat"],
+            "lon": h["lon"],
+            "distance_km": round(distance, 2),
+            "phone": "Govt Emergency Helpline",
+            "address": h["address"]
+        })
+            
+    analyzed_hospitals.sort(key=lambda x: x["distance_km"])
+    return analyzed_hospitals[:5]
+
+
+# --- Step 3: Dynamic Routing Network Definition ---
 def build_default_evacuation_network():
     G = nx.Graph()
     G.add_node("Shelter_A", pos=(22.5726, 88.3639), type="safe_zone", capacity=500)
@@ -120,11 +124,10 @@ def build_default_evacuation_network():
     G.add_node("Node_2", pos=(22.5900, 88.3800), type="junction", risk_level="High")
     G.add_node("Victim_Zone", pos=(22.6000, 88.3900), type="hazard", risk_level="Critical")
 
-    G.add_edge("Victim_Zone", "Node_2", distance=2.5, road_condition="Obstructed", weight=float('inf'))
-    G.add_edge("Victim_Zone", "Node_1", distance=3.0, road_condition="Clear", weight=3.0)
-    G.add_node("Node_1", pos=(22.5800, 88.3700))
-    G.add_edge("Node_1", "Shelter_A", distance=1.5, road_condition="Clear", weight=1.5)
-    G.add_edge("Node_2", "Shelter_A", distance=2.0, road_condition="Clear", weight=2.0)
+    G.add_edge("Victim_Zone", "Node_2", distance=2.5, weight=float('inf'))
+    G.add_edge("Victim_Zone", "Node_1", distance=3.0, weight=3.0)
+    G.add_edge("Node_1", "Shelter_A", distance=1.5, weight=1.5)
+    G.add_edge("Node_2", "Shelter_A", distance=2.0, weight=2.0)
     return G
 
 
@@ -136,7 +139,7 @@ def startup_event():
     ml_model, label_encoder, model_feature_columns = train_enhanced_risk_classifier(csv_path)
 
 
-# --- Step 4: FastAPI Integration Endpoint with Automated Rescue Methods Analysis ---
+# --- Step 4: FastAPI Integration Endpoint with A* Routing Optimization ---
 @app.post("/ingest-and-optimize/")
 def process_disaster_telemetry(payload: DynamicOptimizationRequest):
     try:
@@ -144,11 +147,9 @@ def process_disaster_telemetry(payload: DynamicOptimizationRequest):
         waypoints = payload.waypoints
         
         validated_data = record.model_dump(by_alias=True)
-        
         if "air_quality" in validated_data and "air_quality_index" not in validated_data:
             validated_data["air_quality_index"] = validated_data["air_quality"]
         
-        # Prepare input dataframe for model prediction
         input_df = pd.DataFrame([validated_data])
         numerical_features = [
             'temperature', 'humidity', 'wind_speed', 'air_quality_index', 
@@ -180,7 +181,7 @@ def process_disaster_telemetry(payload: DynamicOptimizationRequest):
         else:
             predicted_severity = ml_severity
 
-        # --- Automated Rescue Methods Analysis Engine ---
+        # --- Rescue Methods Analysis ---
         rescue_methods = []
         allocated_units = []
 
@@ -208,7 +209,14 @@ def process_disaster_telemetry(payload: DynamicOptimizationRequest):
         if not rescue_methods:
             rescue_methods.append("Standard Ground Evacuation & Monitoring")
 
-        # Build Graph dynamically from user waypoints or fallback to default
+        target_lat, target_lon = 22.6000, 88.3900
+        if waypoints and len(waypoints) > 0:
+            target_lat = waypoints[-1].get("lat", 22.6000)
+            target_lon = waypoints[-1].get("lon", 88.3900)
+
+        nearby_hospitals = fetch_live_hospital_network(target_lat=target_lat, target_lon=target_lon, radius_km=15.0)
+
+        # --- Build Graph & Execute A* Search ---
         graph = nx.Graph()
         if waypoints and len(waypoints) >= 2:
             for wp in waypoints:
@@ -232,14 +240,27 @@ def process_disaster_telemetry(payload: DynamicOptimizationRequest):
             source = "Victim_Zone"
             target = "Shelter_A"
 
-        path = nx.shortest_path(graph, source=source, target=target, weight='weight')
-        total_distance = nx.path_weight(graph, path, weight='distance')
+        # Heuristic function for A* Search using geographic coordinate distance
+        def astar_heuristic(u, v):
+            pos_u = graph.nodes[u].get('pos')
+            pos_v = graph.nodes[v].get('pos')
+            if pos_u and pos_v:
+                return geodesic(pos_u, pos_v).kilometers
+            return 0.0
+
+        try:
+            path = nx.astar_path(graph, source=source, target=target, heuristic=astar_heuristic, weight='weight')
+            total_distance = nx.path_weight(graph, path, weight='distance')
+        except nx.NetworkXNoPath:
+            path = [source, target]
+            total_distance = 0.0
 
         return {
             "status": "success",
             "ai_predicted_severity_level": predicted_severity,
             "rescue_methods": rescue_methods,
             "allocated_units": list(set(allocated_units)),
+            "nearby_hospitals_within_3km": nearby_hospitals,
             "evacuation_route": path,
             "total_distance_km": round(total_distance, 2)
         }

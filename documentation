@@ -1,26 +1,45 @@
-What the Model is Doing
-The system acts as an end-to-end intelligent disaster response and resource optimization engine. Specifically, it performs three core tasks simultaneously upon receiving live telemetry:
+## 🧠 AI Model Architecture & Operational Workflow
 
-Data Ingestion and Validation: It ingests streaming sensor and drone data, validating every field against strict data types, ranges, and structures using Pydantic.
+TrustRescue AI employs a **Hybrid Decision Architecture** that combines supervised machine learning classification with rule-based deterministic safety overrides. This ensures the system remains statistically adaptable while maintaining absolute reliability during critical emergency scenarios.
 
-AI Risk Scoring Classification: It passes the validated numerical telemetry (such as temperature, water level, wind speed) and categorical infrastructure metrics (such as building damage and road conditions) through a trained machine learning classifier to predict the crisis severity level (Low, Medium, or High).
+---
 
-Dynamic Graph Routing & Resource Allocation: It constructs a spatial network map of the disaster zone, calculates the safest obstacle-free evacuation path using graph theory (bypassing blocked roads), and automatically dispatches appropriate emergency units (e.g., rescue boats, ambulances, HazMat teams) based on the severity and affected area type.
+### 1. Model Architecture
 
-What Architecture It Is Using
-The system utilizes a hybrid modular architecture combining:
+The core intelligence engine uses an **Ensemble Supervised Classification Architecture** powered by a **Random Forest Classifier** (`RandomForestClassifier` from `scikit-learn`).
 
-Pydantic & Pandas Core: For deterministic data validation, schema enforcement, and DataFrame manipulation.
+* **Feature Vector Input:** The model processes 13 distinct numerical and categorical parameters ingested from drone sensors and IoT feeds, including:
+* *Numerical Features:* Temperature, humidity, wind speed, air quality index (AQI), water level, vegetation cover, people detected, heat signatures, and hazardous material indicators.
+* *Categorical Features:* Building damage level, road condition, infrastructure status, and affected area type.
 
-Random Forest Classifier (Ensemble Machine Learning): Built using scikit-learn, utilizing multiple decision trees trained on bootstrap samples with weighted class balancing.
 
-NetworkX (Graph Theory Engine): For spatial node-edge modeling and Dijkstra-based shortest-path calculations.
+* **Encoding & Preprocessing:** Categorical features are converted into numeric binary matrices using One-Hot Encoding (`pd.get_dummies`), and target labels (disaster severity levels) are encoded using `LabelEncoder`.
+* **Class Balancing:** Because emergency datasets often suffer from class imbalance (fewer critical disaster instances compared to low-risk ones), the forest is configured with `class_weight='balanced'` to prevent bias toward common outcomes.
 
-FastAPI & Streamlit: For asynchronous microservice API routing and a reactive Python-based user interface.
+---
 
-Why It Is Using That Architecture
-Why Random Forest for Risk Scoring? Disasters involve complex non-linear relationships between environmental sensors (e.g., high water levels combined with obstructed roads). Random Forest handles mixed data types (numerical sensors and categorical damage levels) exceptionally well, is robust against overfitting on tabular datasets, and provides built-in handling for class imbalance via class_weight='balanced'.
+### 2. How the AI Works (Operational Workflow)
 
-Why NetworkX for Routing? Real-world disaster zones consist of interconnected junctions, hazard zones, and shelters. Graph algorithms like Dijkstra's algorithm provide mathematically guaranteed optimal paths and allow instant dynamic weight updates (e.g., setting a road's weight to infinity if it becomes blocked), which traditional map routing APIs cannot adapt to on the fly.
+The model operates through a four-stage sequential pipeline during every API ingestion request:
 
-Why FastAPI and Streamlit? FastAPI provides high-performance, asynchronous validation and endpoint serving essential for emergency response systems, while Streamlit enables rapid, pure-Python dashboard deployment without complex HTML/JS overhead.
+#### Step A: Schema Validation & Ingestion
+
+Incoming telemetry payloads are validated against strict Pydantic schemas. Missing or misaliased fields (such as converting `air_quality` to `air_quality_index`) are normalized instantly.
+
+#### Step B: Feature Alignment & Prediction
+
+The validated JSON payload is structured into a pandas DataFrame. The pipeline aligns the input columns with the exact feature matrix format established during training (`X_input.reindex(columns=model_feature_columns, fill_value=0)`). The pre-trained Random Forest model outputs an initial encoded severity prediction, which is inverse-transformed back into a categorical label (`Low`, `Medium`, or `High`).
+
+#### Step C: Deterministic Safety Override (Hybrid Fusion)
+
+To eliminate AI hallucinations or blind spots in extreme physical conditions, the model passes through a secondary safety layer:
+
+* If water levels exceed critical thresholds ($>8.0\text{m}$), roads are blocked, or hazardous materials are detected, the system **automatically overrides** the AI prediction to **High** severity, ensuring life-safety protocols are never compromised by statistical approximation.
+
+#### Step D: Tactical Resource & Rescue Dispatch
+
+Once the final severity and environmental hazards are confirmed, rule-based engines map the condition to specific tactical responses:
+
+* **Flooded zones** trigger waterborne surface rescue allocations and rescue boat units.
+* **Severe structural damage or blockages** trigger heavy ground extraction or aerial UAV reconnaissance.
+* **Hazardous materials** automatically dispatch specialized HazMat containment units.
