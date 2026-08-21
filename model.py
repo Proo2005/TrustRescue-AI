@@ -136,7 +136,7 @@ def startup_event():
     ml_model, label_encoder, model_feature_columns = train_enhanced_risk_classifier(csv_path)
 
 
-# --- Step 4: FastAPI Integration Endpoint with Dynamic Custom Waypoints ---
+# --- Step 4: FastAPI Integration Endpoint with Automated Rescue Methods Analysis ---
 @app.post("/ingest-and-optimize/")
 def process_disaster_telemetry(payload: DynamicOptimizationRequest):
     try:
@@ -171,6 +171,7 @@ def process_disaster_telemetry(payload: DynamicOptimizationRequest):
         road_cond = validated_data.get("road_condition", "Clear")
         damage = validated_data.get("building_damage_level", "Undamaged")
         hazards = validated_data.get("hazardous_material_detected", 0)
+        area_type = validated_data.get("affected_area_type", "Unblocked")
 
         if water_lvl > 8.0 or road_cond == "Blocked" or hazards == 1 or damage == "Severe":
             predicted_severity = "High"
@@ -179,28 +180,55 @@ def process_disaster_telemetry(payload: DynamicOptimizationRequest):
         else:
             predicted_severity = ml_severity
 
-        # Build Graph dynamically from user waypoints sequentially
+        # --- Automated Rescue Methods Analysis Engine ---
+        rescue_methods = []
+        allocated_units = []
+
+        if predicted_severity == "High":
+            rescue_methods.append("Aerial Reconnaissance & Medical Evacuation (Chopper/UAV)")
+            allocated_units.extend(["🚨 2x Heavy Rescue Teams", "🚁 1x Medical Evacuation Chopper"])
+        else:
+            allocated_units.append("🚑 1x Standard Ambulance")
+
+        if area_type == "Flooded" or water_lvl > 4.0:
+            rescue_methods.append("Waterborne Surface Rescue (Aquatic Extraction)")
+            allocated_units.append("🚤 1x Rescue Boat Unit")
+
+        if area_type == "Fire-Damaged":
+            rescue_methods.append("Fire Suppression & Thermal Mitigation")
+            allocated_units.append("🚒 2x Fire Suppression Units")
+
+        if damage in ["Severe", "Moderate"] or road_cond in ["Obstructed", "Blocked"]:
+            rescue_methods.append("Heavy Ground Extraction & Debris Clearance")
+
+        if hazards == 1:
+            rescue_methods.append("Hazardous Materials Containment & Decontamination (HazMat)")
+            allocated_units.append("☢️ HazMat Specialist Team")
+
+        if not rescue_methods:
+            rescue_methods.append("Standard Ground Evacuation & Monitoring")
+
+        # Build Graph dynamically from user waypoints or fallback to default
         graph = nx.Graph()
         if waypoints and len(waypoints) >= 2:
             for wp in waypoints:
                 graph.add_node(wp["name"], pos=(wp["lat"], wp["lon"]))
             
-            # Connect nodes in the exact sequential order they were added/clicked
             for i in range(len(waypoints) - 1):
                 p1 = (waypoints[i]["lat"], waypoints[i]["lon"])
                 p2 = (waypoints[i+1]["lat"], waypoints[i+1]["lon"])
-                
-                # Calculate exact geodesic/Euclidean distance in kilometers
                 dist = ((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)**0.5 * 111.0
                 
                 weight = float('inf') if road_cond in ["Obstructed", "Blocked"] and i == 0 else dist
                 graph.add_edge(waypoints[i]["name"], waypoints[i+1]["name"], distance=dist, weight=weight)
             
-            # Route strictly from the first waypoint to the last waypoint in your list
             source = waypoints[0]["name"]
             target = waypoints[-1]["name"]
         else:
             graph = build_default_evacuation_network()
+            if road_cond in ["Obstructed", "Blocked"]:
+                if graph.has_edge("Victim_Zone", "Node_1"):
+                    graph["Victim_Zone"]["Node_1"]["weight"] = float('inf')
             source = "Victim_Zone"
             target = "Shelter_A"
 
@@ -210,7 +238,8 @@ def process_disaster_telemetry(payload: DynamicOptimizationRequest):
         return {
             "status": "success",
             "ai_predicted_severity_level": predicted_severity,
-            "validated_payload": validated_data,
+            "rescue_methods": rescue_methods,
+            "allocated_units": list(set(allocated_units)),
             "evacuation_route": path,
             "total_distance_km": round(total_distance, 2)
         }

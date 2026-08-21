@@ -135,18 +135,17 @@ with col2:
     st.info(f"📏 **Calculated Manual Route Distance:** {total_manual_distance:.2f} km across {len(st.session_state.custom_waypoints)} nodes.")
 
 # AI Intelligence Dispatch Section
+# AI Intelligence Dispatch Section
 st.markdown("---")
-st.subheader("⚡ AI Response & Resource Dispatch")
+st.subheader("⚡ AI Response & Tactical Resource Dispatch")
 if st.button("Run AI Intelligence & Dispatch Units", type="primary"):
     try:
-        # --- PLACE THE PAYLOAD AND POST REQUEST HERE ---
         payload = {
             "record": input_data,
             "waypoints": st.session_state.custom_waypoints
         }
         response = requests.post("http://127.0.0.1:8000/ingest-and-optimize/", json=payload)
-
-
+        
         if response.status_code == 200:
             result = response.json()
             severity = result.get("ai_predicted_severity_level", "Medium")
@@ -157,9 +156,21 @@ if st.button("Run AI Intelligence & Dispatch Units", type="primary"):
                 st.warning(f"⚠️ AI Predicted Severity Level: **{severity}**")
             else:
                 st.info(f"✅ AI Predicted Severity Level: **{severity}**")
+            # Display Recommended Rescue Methods
+            st.markdown("### 🛡️ Recommended Methods of Rescue")
+            for method in result.get("rescue_methods", []):
+                st.markdown(f"- ✅ **{method}**")
 
-            st.write(f"**Backend Optimized Route:** `{' -> '.join(result.get('evacuation_route', []))}`")
-            st.write(f"**Backend Path Distance:** {result.get('total_distance_km')} km")
+            # Display Dispatched Units
+            st.markdown("### 🚑 Automated Emergency Unit Dispatch")
+            for unit in result.get("allocated_units", []):
+                st.markdown(f"- {unit}")
+
+            # Routing Logistics
+            st.markdown("### 🗺️ Evacuation Logistics")
+            st.write(f"**Optimized Route:** `{' -> '.join(result.get('evacuation_route', []))}`")
+            st.write(f"**Total Path Distance:** {result.get('total_distance_km')} km")
+            
         else:
             st.error(f"Backend Error: {response.text}")
     except requests.exceptions.ConnectionError:
