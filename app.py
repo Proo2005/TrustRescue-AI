@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import requests
+import json
 import folium
 from streamlit_folium import st_folium
 from geopy.distance import geodesic
@@ -120,6 +121,20 @@ def user_input_features():
 
 input_data = user_input_features()
 
+# --- New Feature: Live Environmental Threat Index Meter in Sidebar ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("⚠️ Environmental Threat Index")
+threat_score = min(100, int((input_data["water_level"] / 15.0 * 40) + 
+                            (input_data["wind_speed"] / 120.0 * 30) + 
+                            (input_data["air_quality"] / 500.0 * 30)))
+st.sidebar.progress(threat_score / 100.0)
+if threat_score > 60:
+    st.sidebar.error(f"Threat Index: {threat_score}/100 (CRITICAL)")
+elif threat_score > 30:
+    st.sidebar.warning(f"Threat Index: {threat_score}/100 (MODERATE)")
+else:
+    st.sidebar.success(f"Threat Index: {threat_score}/100 (LOW)")
+
 # Initialize Session State for Custom Waypoints / Clicked Points
 if "custom_waypoints" not in st.session_state:
     st.session_state.custom_waypoints = [
@@ -128,16 +143,17 @@ if "custom_waypoints" not in st.session_state:
     ]
 
 # Layout Columns
+# Layout Columns
 col1, col2 = st.columns([1, 1], gap="large")
 
 with col1:
-    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    st.subheader("📋 Active Telemetry Payload")
+   
+    st.markdown('<h3 style="margin-top:0;">📋 Active Telemetry Payload</h3>', unsafe_allow_html=True)
     st.json(input_data)
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    st.subheader("📍 Manual Waypoint Management")
+    st.markdown('<h3 style="margin-top:0;">📍 Manual Waypoint Management</h3>', unsafe_allow_html=True)
     with st.form("add_waypoint_form"):
         wp_name = st.text_input("Waypoint Name", value=f"Node_{len(st.session_state.custom_waypoints)+1}")
         wp_lat = st.number_input("Latitude", value=22.5850, format="%.4f")
@@ -156,10 +172,9 @@ with col1:
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col2:
-    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    st.subheader("🗺️ Interactive Crisis Map")
-    st.markdown("<p style='color: #94a3b8; font-size: 0.9rem;'>Click anywhere on the map to drop coordinates or inspect checkpoints.</p>", unsafe_allow_html=True)
 
+    st.markdown('<h3 style="margin-top:0;">🗺️ Interactive Crisis Map</h3>', unsafe_allow_html=True)
+    st.markdown("<p style='color: #94a3b8; font-size: 0.9rem;'>Click anywhere on the map to drop coordinates or inspect checkpoints.</p>", unsafe_allow_html=True)
     m = folium.Map(location=[22.5850, 88.3750], zoom_start=13, tiles="CartoDB dark_matter")
     
     for wp in st.session_state.custom_waypoints:
@@ -214,6 +229,17 @@ if st.button("Run AI Intelligence & Dispatch Units", type="primary"):
             result = response.json()
             severity = result.get("ai_predicted_severity_level", "Medium")
             
+            # Store result in session state for export capability
+            st.session_state.last_mission_report = {
+                "telemetry": input_data,
+                "threat_score": threat_score,
+                "ai_severity": severity,
+                "rescue_methods": result.get("rescue_methods", []),
+                "allocated_units": result.get("allocated_units", []),
+                "evacuation_route": result.get("evacuation_route", []),
+                "total_distance_km": result.get("total_distance_km", 0.0)
+            }
+            
             st.markdown("<br>", unsafe_allow_html=True)
             if severity == "High":
                 st.error(f"⚠️ AI Predicted Severity Level: **{severity}**")
@@ -242,5 +268,16 @@ if st.button("Run AI Intelligence & Dispatch Units", type="primary"):
             st.error(f"Backend Error: {response.text}")
     except requests.exceptions.ConnectionError:
         st.error("Could not connect to FastAPI backend. Ensure your backend server is running (`uvicorn model:app --reload`).")
+
+# --- New Feature: Export Mission Report Button ---
+if "last_mission_report" in st.session_state:
+    st.markdown("---")
+    report_json = json.dumps(st.session_state.last_mission_report, indent=4)
+    st.download_button(
+        label="📥 Download Official Mission Report (JSON)",
+        data=report_json,
+        file_name="trustrescue_mission_report.json",
+        mime="application/json"
+    )
 
 st.markdown('</div>', unsafe_allow_html=True)
