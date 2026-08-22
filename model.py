@@ -85,35 +85,46 @@ def train_enhanced_risk_classifier(csv_file_path: str):
     clf = RandomForestClassifier(n_estimators=100, class_weight='balanced', random_state=42)
     clf.fit(X_train, y_train)
 
-    return clf, encoder, X.columns.tolist()
+    return clf, encoder, X.columns.tolist()    
 
 
 # --- Real-Time Location-Based Hospital Fetcher (Govt Utility Dataset) ---
-def fetch_live_hospital_network(target_lat=22.6000, target_lon=88.3900, radius_km=15.0):
-    official_gov_hospitals = [
-        {"hospital_name": "College of Medicine and Sagore Dutta Hospital", "lat": 22.6714, "lon": 88.3785, "address": "Kamarhati, Kolkata 700058"},
-        {"hospital_name": "Baranagar State General Hospital", "lat": 22.6373, "lon": 88.3713, "address": "104 AK Mukherjee Rd, Baranagar 700090"},
-        {"hospital_name": "Bidhannagar Sub-Divisional Hospital", "lat": 22.5867, "lon": 88.4169, "address": "Salt Lake City, DD Block, Sector I, Kolkata 700064"},
-        {"hospital_name": "B N Bose Sub Divisional Hospital", "lat": 22.7634, "lon": 88.3776, "address": "B T Road, Talpukur, Barrackpore 700123"},
-        {"hospital_name": "Panihati State General Hospital", "lat": 22.6931, "lon": 88.3789, "address": "Barasat Rd, Sodepur, Panihati 700109"},
-        {"hospital_name": "Sri Balaram Seva Mandir State General Hospital", "lat": 22.7302, "lon": 88.3794, "address": "MS Mukherjee Rd, Khardaha 700116"},
-        {"hospital_name": "Barasat Government Medical College & Hospital", "lat": 22.2241, "lon": 88.4800, "address": "Barasat, North 24 Parganas 700124"}
-    ]
+import json
+import os
+from geopy.distance import geodesic
+
+def fetch_live_hospital_network(target_lat=22.6000, target_lon=88.3900, radius_km=50.0):
+    json_path = "hospitals_dataset.json"
+    
+    if os.path.exists(json_path):
+        with open(json_path, "r") as f:
+            official_gov_hospitals = json.load(f)
+    else:
+        # Fallback inline list if file missing
+        official_gov_hospitals = [
+            {"hospital_name": "College of Medicine and Sagore Dutta Hospital", "address": "Kamarhati", "lat": 22.6714, "lon": 88.3785, "available_units": 120, "available_icu_units": 25, "ambulances_stationed": 6}
+        ]
     
     analyzed_hospitals = []
     for h in official_gov_hospitals:
         distance = geodesic((target_lat, target_lon), (h["lat"], h["lon"])).kilometers
         analyzed_hospitals.append({
             "hospital_name": h["hospital_name"],
+            "address": h["address"],
             "lat": h["lat"],
             "lon": h["lon"],
             "distance_km": round(distance, 2),
-            "phone": "Govt Emergency Helpline",
-            "address": h["address"]
+            "available_general_units": h.get("available_units", 50),
+            "available_icu_units": h.get("available_icu_units", 10),
+            "ambulances_stationed": h.get("ambulances_stationed", 3),
+            "phone": "Govt Emergency Helpline"
         })
             
+    # Sort by closest distance and return all available facilities
     analyzed_hospitals.sort(key=lambda x: x["distance_km"])
-    return analyzed_hospitals[:5]
+    return analyzed_hospitals
+            
+
 
 
 # --- Step 3: Dynamic Routing Network Definition ---
@@ -266,3 +277,5 @@ def process_disaster_telemetry(payload: DynamicOptimizationRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
